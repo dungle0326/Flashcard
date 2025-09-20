@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Japanese Flashcard App</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="flashcard" id="flashcard">
+            <div class="card-side" id="front">
+                <div class="word" id="japanese-word">Loading...</div>
+            </div>
+            <div class="card-side" id="back">
+                <div class="meaning" id="meaning"></div>
+                <div class="furigana" id="furigana"></div>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <button id="flip-btn" class="flip-btn">Show Answer</button>
+            <div class="action-buttons">
+                <button id="ng-btn" class="ng-btn">NG</button>
+                <button id="understood-btn" class="understood-btn">Understood</button>
+            </div>
+        </div>
+        
+        <div class="progress">
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+            <div class="progress-text" id="progress-text">0 / 0</div>
+        </div>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>
