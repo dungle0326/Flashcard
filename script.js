@@ -15,6 +15,8 @@ class FlashcardApp {
         this.originalWords = []; // Store original order
         this.favoriteWords = new Set(); // Store favorite word IDs
         this.isFavoritesMode = false; // Whether currently showing only favorites
+        this.newWordsCount = 0; // Track how many new words have been shown
+        this.newWordsThreshold = 10; // Show low scoring words after this many new words
         this.initializeFirebase();
     }
 
@@ -34,6 +36,18 @@ class FlashcardApp {
         firebase.initializeApp(firebaseConfig);
         this.db = firebase.firestore();
         
+        // Enable offline persistence for better sync
+        this.db.enablePersistence().catch((err) => {
+            if (err.code === 'failed-precondition') {
+                console.log('Multiple tabs open, persistence can only be enabled in one tab at a time.');
+            } else if (err.code === 'unimplemented') {
+                console.log('The current browser does not support offline persistence.');
+            }
+        });
+        
+        // Set up real-time sync
+        this.setupRealtimeSync();
+        
         // Initialize app directly (no authentication needed)
         this.initializeApp();
     }
@@ -43,15 +57,161 @@ class FlashcardApp {
         try {
             console.log('Initializing app...');
             this.setupEventListeners();
+            
+            // Check font loading
+            await this.checkFontLoading();
+            
+            // Show loading indicator
+            const progressText = document.getElementById('progress-text');
+            if (progressText) {
+                progressText.textContent = 'Loading data...';
+            }
+            
+            console.log('Loading Excel data...');
             await this.loadExcelData();
+            console.log('Excel data loaded, words count:', this.words.length);
+            
+            if (progressText) {
+                progressText.textContent = 'Loading study data...';
+            }
+            
+            console.log('Loading study data from Firebase...');
             await this.loadStudyDataFromFirebase();
+            console.log('Study data loaded');
+            
             this.restoreSessionState();
             this.initializePerformanceChart();
+            
+            console.log('Showing current card...');
             this.showCurrentCard();
             console.log('App initialized successfully');
         } catch (error) {
             console.error('Error initializing app:', error);
-            alert('Error initializing app. Check console for details.');
+            console.log('Falling back to sample data...');
+            this.loadSampleData();
+        }
+    }
+
+    async checkFontLoading() {
+        try {
+            console.log('Checking font loading...');
+            
+            // Check if fonts are loaded
+            if ('fonts' in document) {
+                await document.fonts.ready;
+                console.log('Fonts loaded successfully');
+                
+                // Check specific fonts
+                const notoSans = await document.fonts.check('16px "Noto Sans"');
+                const notoSansJP = await document.fonts.check('16px "Noto Sans JP"');
+                const inter = await document.fonts.check('16px "Inter"');
+                
+                console.log('Font availability:', {
+                    'Noto Sans': notoSans,
+                    'Noto Sans JP': notoSansJP,
+                    'Inter': inter
+                });
+                
+                if (!notoSans || !notoSansJP) {
+                    console.warn('Some fonts may not be loaded properly, using fallbacks');
+                }
+                
+                // Test text rendering
+                this.testTextRendering();
+            } else {
+                console.log('Font loading API not available, using fallbacks');
+            }
+        } catch (error) {
+            console.warn('Font loading check failed:', error);
+        }
+    }
+
+    testTextRendering() {
+        console.log('Testing text rendering...');
+        
+        // Test Japanese text
+        const testDiv = document.createElement('div');
+        testDiv.style.position = 'absolute';
+        testDiv.style.top = '-1000px';
+        testDiv.style.left = '-1000px';
+        testDiv.style.fontSize = '16px';
+        testDiv.style.fontFamily = 'Noto Sans JP, Noto Sans, Inter, sans-serif';
+        testDiv.textContent = 'こんにちは 世界';
+        document.body.appendChild(testDiv);
+        
+        const computedStyle = window.getComputedStyle(testDiv);
+        console.log('Japanese test - Font family:', computedStyle.fontFamily);
+        console.log('Japanese test - Text content:', testDiv.textContent);
+        console.log('Japanese test - InnerHTML:', testDiv.innerHTML);
+        
+        document.body.removeChild(testDiv);
+        
+        // Test Vietnamese text
+        const testDiv2 = document.createElement('div');
+        testDiv2.style.position = 'absolute';
+        testDiv2.style.top = '-1000px';
+        testDiv2.style.left = '-1000px';
+        testDiv2.style.fontSize = '16px';
+        testDiv2.style.fontFamily = 'Noto Sans, Inter, sans-serif';
+        testDiv2.textContent = 'Xin chào thế giới';
+        document.body.appendChild(testDiv2);
+        
+        console.log('Vietnamese test - Text content:', testDiv2.textContent);
+        console.log('Vietnamese test - InnerHTML:', testDiv2.innerHTML);
+        
+        document.body.removeChild(testDiv2);
+    }
+
+    forceRefreshDisplay() {
+        console.log('Forcing display refresh...');
+        
+        // Force a reflow to ensure the display is updated
+        const flashcard = document.getElementById('flashcard');
+        if (flashcard) {
+            flashcard.style.display = 'none';
+            flashcard.offsetHeight; // Trigger reflow
+            flashcard.style.display = '';
+        }
+        
+        // Update the current card display
+        this.showCurrentCard();
+        
+        // Force font loading if not already done
+        if (document.fonts && document.fonts.ready) {
+            document.fonts.ready.then(() => {
+                console.log('Fonts ready after force refresh');
+                this.showCurrentCard();
+            });
+        }
+    }
+
+    testLoadedData() {
+        console.log('Testing loaded data...');
+        
+        if (this.words.length > 0) {
+            const firstWord = this.words[0];
+            console.log('First word data:', {
+                japanese: firstWord.japanese,
+                meaning: firstWord.meaning,
+                furigana: firstWord.furigana,
+                japaneseLength: firstWord.japanese.length,
+                meaningLength: firstWord.meaning.length,
+                furiganaLength: firstWord.furigana.length
+            });
+            
+            // Test character codes
+            console.log('Japanese character codes:', Array.from(firstWord.japanese).map(c => c.charCodeAt(0)));
+            console.log('Meaning character codes:', Array.from(firstWord.meaning).map(c => c.charCodeAt(0)));
+            console.log('Furigana character codes:', Array.from(firstWord.furigana).map(c => c.charCodeAt(0)));
+            
+            // Test if characters are actually Japanese/Vietnamese
+            const hasJapanese = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(firstWord.japanese);
+            const hasVietnamese = /[àáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ]/.test(firstWord.meaning);
+            
+            console.log('Character detection:', {
+                hasJapanese: hasJapanese,
+                hasVietnamese: hasVietnamese
+            });
         }
     }
 
@@ -414,8 +574,53 @@ class FlashcardApp {
     }
 
     async loadExcelData() {
-        // Automatically load from the specified Google Sheets URL
-        await this.loadFromGoogleSheets();
+        // Automatically load from the specified Google Sheets URL with timeout
+        try {
+            console.log('Starting data loading process...');
+            
+            // Test if the Google Sheets URL is accessible
+            await this.testGoogleSheetsAccess();
+            
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('Data loading timeout (30s)')), 30000);
+            });
+            
+            await Promise.race([
+                this.loadFromGoogleSheets(),
+                timeoutPromise
+            ]);
+        } catch (error) {
+            console.error('Excel data loading failed:', error);
+            console.log('Falling back to sample data...');
+            this.loadSampleData();
+        }
+    }
+
+    async testGoogleSheetsAccess() {
+        try {
+            console.log('Testing Google Sheets accessibility...');
+            const testUrl = this.excelUrl.replace('/export?format=xlsx', '/export?format=csv');
+            
+            const response = await fetch(testUrl, {
+                method: 'HEAD', // Just check if accessible
+                mode: 'cors',
+                cache: 'no-cache'
+            });
+            
+            console.log('Google Sheets accessibility test result:', response.status);
+            
+            if (response.status === 403) {
+                throw new Error('Google Sheets is not publicly accessible. Please make sure the sheet is shared with "Anyone with the link can view"');
+            } else if (response.status === 404) {
+                throw new Error('Google Sheets not found. Please check the URL');
+            } else if (response.status >= 400) {
+                throw new Error(`Google Sheets access error: HTTP ${response.status}`);
+            }
+            
+        } catch (error) {
+            console.log('Google Sheets accessibility test failed:', error.message);
+            // Don't throw here, just log and continue with the main loading process
+        }
     }
 
     async refreshData() {
@@ -458,8 +663,117 @@ class FlashcardApp {
     }
 
     async loadFromGoogleSheets() {
-        const maxRetries = 5;
-        const timeoutMs = 15000; // Reduced to 15 seconds timeout
+        console.log('Starting Google Sheets data fetch...');
+        console.log('Target URL:', this.excelUrl);
+        
+        // Prioritize XLSX method for better Unicode support
+        console.log('Trying XLSX format first for better Unicode support...');
+        
+        try {
+            const response = await this.fetchWithRetry(this.excelUrl);
+            if (response.ok) {
+                console.log('XLSX fetch successful, status:', response.status);
+                const arrayBuffer = await response.arrayBuffer();
+                console.log('XLSX data received, length:', arrayBuffer.byteLength);
+                
+                // Process XLSX data (preserves Unicode properly)
+                const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+                this.processWorkbook(workbook);
+                return;
+            }
+        } catch (error) {
+            console.log('XLSX fetch failed:', error.message);
+        }
+        
+        // Fallback to CSV only if XLSX fails
+        console.log('Falling back to CSV format...');
+        try {
+            const csvUrl = this.excelUrl.replace('/export?format=xlsx', '/export?format=csv');
+            console.log('Trying CSV format:', csvUrl);
+            
+            // Add timeout for CSV fetch
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('CSV fetch timeout (8s)')), 8000);
+            });
+            
+            const fetchPromise = fetch(csvUrl, {
+                method: 'GET',
+                mode: 'cors',
+                cache: 'no-cache',
+                headers: {
+                    'Accept': 'text/csv,*/*',
+                    'Cache-Control': 'no-cache'
+                }
+            });
+            
+            const response = await Promise.race([fetchPromise, timeoutPromise]);
+            
+            if (response.ok) {
+                console.log('CSV fetch successful, status:', response.status);
+                
+                // Get the response as array buffer first to handle encoding properly
+                const arrayBuffer = await response.arrayBuffer();
+                console.log('Array buffer length:', arrayBuffer.byteLength);
+                
+                // Try different encodings to find the best one
+                const encodings = ['utf-8', 'utf-16', 'iso-8859-1', 'windows-1252'];
+                let csvText = '';
+                let bestEncoding = 'utf-8';
+                
+                for (const encoding of encodings) {
+                    try {
+                        const decoder = new TextDecoder(encoding);
+                        const testText = decoder.decode(arrayBuffer);
+                        console.log(`Decoded with ${encoding}, length:`, testText.length);
+                        console.log(`First 100 chars with ${encoding}:`, testText.substring(0, 100));
+                        
+                        // Check if we can see Japanese characters
+                        if (/[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(testText)) {
+                            console.log(`Found Japanese characters with ${encoding}`);
+                            csvText = testText;
+                            bestEncoding = encoding;
+                            break;
+                        }
+                        
+                        // Check for Vietnamese characters
+                        if (/[àáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ]/.test(testText)) {
+                            console.log(`Found Vietnamese characters with ${encoding}`);
+                            csvText = testText;
+                            bestEncoding = encoding;
+                            break;
+                        }
+                        
+                        // If no special characters found, use utf-8 as fallback
+                        if (encoding === 'utf-8') {
+                            csvText = testText;
+                        }
+                    } catch (e) {
+                        console.log(`Failed to decode with ${encoding}:`, e.message);
+                    }
+                }
+                
+                console.log(`Using encoding: ${bestEncoding}`);
+                console.log('CSV data received, length:', csvText.length);
+                console.log('CSV data preview:', csvText.substring(0, 500));
+                
+                if (csvText.trim().length === 0) {
+                    throw new Error('CSV data is empty');
+                }
+                
+                // Process CSV data
+                this.processCSVData(csvText);
+                return;
+            } else {
+                console.log('CSV fetch failed, status:', response.status, response.statusText);
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+        } catch (error) {
+            console.log('CSV fetch also failed:', error.message);
+        }
+        
+        // Fallback to the original complex method
+        const maxRetries = 2; // Reduced retries for faster fallback
+        const timeoutMs = 8000; // Reduced to 8 seconds timeout
         
         // Multiple proxy options for better reliability
         const proxyOptions = [
@@ -473,11 +787,11 @@ class FlashcardApp {
             try {
                 console.log(`Fetching from Google Sheets (attempt ${attempt}/${maxRetries})`);
                 
-                // Try different URL formats
+                // Try different URL formats - prioritize CSV as it's more reliable
                 const urlVariations = [
+                    this.excelUrl.replace('/export?format=xlsx', '/export?format=csv'),
                     this.excelUrl + `&t=${Date.now()}`,
                     this.excelUrl.replace('/export?format=xlsx', '/export?format=xlsx&gid=0'),
-                    this.excelUrl.replace('/export?format=xlsx', '/export?format=csv'),
                     this.excelUrl.replace('/export?format=xlsx', '/export?format=ods')
                 ];
                 
@@ -494,20 +808,20 @@ class FlashcardApp {
                         const timeoutPromise = new Promise((_, reject) => {
                             setTimeout(() => reject(new Error('Request timeout (15s)')), timeoutMs);
                         });
-                        
-                        // Try direct fetch first
-                        try {
+            
+            // Try direct fetch first
+            try {
                             const fetchPromise = fetch(testUrl, {
                                 method: 'GET',
                                 mode: 'cors',
-                                cache: 'no-cache',
-                                headers: {
+                    cache: 'no-cache',
+                    headers: {
                                     'Accept': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,*/*',
-                                    'Cache-Control': 'no-cache, no-store, must-revalidate',
-                                    'Pragma': 'no-cache',
-                                    'Expires': '0'
-                                }
-                            });
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache',
+                        'Expires': '0'
+                    }
+                });
                             
                             response = await Promise.race([fetchPromise, timeoutPromise]);
                             console.log(`Direct fetch response status for variation ${urlIndex + 1}:`, response.status);
@@ -520,7 +834,7 @@ class FlashcardApp {
                                 continue;
                             }
                             
-                        } catch (corsError) {
+            } catch (corsError) {
                             console.log(`Direct fetch failed for variation ${urlIndex + 1}, trying proxies...`, corsError);
                             
                             // Try each proxy
@@ -567,27 +881,27 @@ class FlashcardApp {
                 
                 if (!response || !response.ok) {
                     throw new Error(`All URL variations and proxies failed. Last error: ${lastError ? lastError.message : 'Unknown error'}`);
-                }
-                
-                const arrayBuffer = await response.arrayBuffer();
-                console.log('ArrayBuffer size:', arrayBuffer.byteLength);
-                
-                if (arrayBuffer.byteLength === 0) {
-                    throw new Error('Downloaded file is empty');
-                }
-                
-                const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-                console.log('Workbook loaded, sheets:', workbook.SheetNames);
-                
-                if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
-                    throw new Error('No worksheets found in the file');
-                }
-                
-                this.processWorkbook(workbook);
+            }
+            
+            const arrayBuffer = await response.arrayBuffer();
+            console.log('ArrayBuffer size:', arrayBuffer.byteLength);
+            
+            if (arrayBuffer.byteLength === 0) {
+                throw new Error('Downloaded file is empty');
+            }
+            
+            const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+            console.log('Workbook loaded, sheets:', workbook.SheetNames);
+            
+            if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+                throw new Error('No worksheets found in the file');
+            }
+            
+            this.processWorkbook(workbook);
                 console.log(`Successfully loaded data on attempt ${attempt}`);
                 return; // Success, exit the retry loop
-                
-            } catch (error) {
+            
+        } catch (error) {
                 console.error(`Error loading Excel file (attempt ${attempt}/${maxRetries}):`, error);
                 
                 if (attempt === maxRetries) {
@@ -595,9 +909,9 @@ class FlashcardApp {
                     console.log('All attempts failed, falling back to sample data...');
                     
                     const errorMsg = `Failed to load data from Google Sheets after ${maxRetries} attempts.\n\nLast error: ${error.message}\n\nThis might be due to:\n- Google Sheets sharing permissions\n- Network connectivity issues\n- CORS restrictions\n\nUsing sample data instead. You can try:\n1. Making sure the Google Sheet is publicly viewable\n2. Checking your internet connection\n3. Refreshing the page`;
-                    alert(errorMsg);
-                    
-                    this.loadSampleData();
+            alert(errorMsg);
+            
+            this.loadSampleData();
                     return;
                 } else {
                     // Wait before retrying with exponential backoff
@@ -611,6 +925,231 @@ class FlashcardApp {
 
     delay(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async fetchWithRetry(url, maxRetries = 3, timeoutMs = 10000) {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                console.log(`Fetch attempt ${attempt}/${maxRetries} for: ${url}`);
+                
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+                
+                const response = await fetch(url, {
+                    method: 'GET',
+                    mode: 'cors',
+                    cache: 'no-cache',
+                    headers: {
+                        'Accept': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,*/*',
+                        'Cache-Control': 'no-cache'
+                    },
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (response.ok) {
+                    console.log(`Fetch successful on attempt ${attempt}`);
+                    return response;
+                } else {
+                    console.log(`Fetch failed on attempt ${attempt}, status: ${response.status}`);
+                    if (attempt === maxRetries) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                }
+            } catch (error) {
+                console.log(`Fetch attempt ${attempt} failed:`, error.message);
+                if (attempt === maxRetries) {
+                    throw error;
+                }
+                // Wait before retry
+                await this.delay(1000 * attempt);
+            }
+        }
+    }
+
+    processCSVData(csvText) {
+        try {
+            console.log('Processing CSV data...');
+            console.log('Raw CSV data preview:', csvText.substring(0, 500));
+            
+            // Split CSV into lines
+            const lines = csvText.split('\n').filter(line => line.trim());
+            console.log('CSV lines count:', lines.length);
+            
+            if (lines.length < 2) {
+                throw new Error('CSV data appears to be empty or invalid');
+            }
+            
+            // Skip header row (first line)
+            const dataLines = lines.slice(1);
+            console.log('Data lines count:', dataLines.length);
+            
+            this.words = [];
+            
+            dataLines.forEach((line, index) => {
+                // Parse CSV line properly handling quoted fields and special characters
+                const columns = this.parseCSVLine(line);
+                console.log(`Line ${index + 1} parsed:`, columns);
+                
+                if (columns.length >= 3) {
+                    const japanese = columns[1] || ''; // Column B
+                    const meaning = columns[2] || '';  // Column C
+                    const furigana = columns[3] || ''; // Column D
+                    
+                    // Clean and normalize the text data
+                    const cleanJapanese = this.cleanText(japanese);
+                    const cleanMeaning = this.cleanText(meaning);
+                    const cleanFurigana = this.cleanText(furigana);
+                    
+                    console.log(`Word ${index + 1}: Japanese="${cleanJapanese}", Meaning="${cleanMeaning}", Furigana="${cleanFurigana}"`);
+                    
+                    if (cleanJapanese && cleanMeaning) {
+                        this.words.push({
+                            id: index,
+                            japanese: cleanJapanese,
+                            meaning: cleanMeaning,
+                            furigana: cleanFurigana || this.generateFurigana(cleanJapanese),
+                            wrongCount: 0,
+                            lastStudied: null,
+                            nextReview: Date.now()
+                        });
+                    }
+                }
+            });
+            
+            // Store original order
+            this.originalWords = [...this.words];
+            
+            console.log(`Successfully loaded ${this.words.length} words from CSV`);
+            
+            if (this.words.length === 0) {
+                throw new Error('No valid words found in CSV data');
+            }
+            
+            // Test the loaded data
+            this.testLoadedData();
+            
+            // Force refresh the display
+            this.forceRefreshDisplay();
+            
+        } catch (error) {
+            console.error('Error processing CSV data:', error);
+            throw error;
+        }
+    }
+
+    parseCSVLine(line) {
+        const result = [];
+        let current = '';
+        let inQuotes = false;
+        let i = 0;
+        
+        while (i < line.length) {
+            const char = line[i];
+            const nextChar = line[i + 1];
+            
+            if (char === '"') {
+                if (inQuotes && nextChar === '"') {
+                    // Escaped quote
+                    current += '"';
+                    i += 2;
+                } else {
+                    // Toggle quote state
+                    inQuotes = !inQuotes;
+                    i++;
+                }
+            } else if (char === ',' && !inQuotes) {
+                // End of field
+                result.push(current.trim());
+                current = '';
+                i++;
+            } else {
+                // Regular character
+                current += char;
+                i++;
+            }
+        }
+        
+        // Add the last field
+        result.push(current.trim());
+        
+        return result;
+    }
+
+    cleanText(text) {
+        if (!text) return '';
+        
+        // Remove any null characters or control characters
+        let cleaned = text.replace(/[\x00-\x1F\x7F]/g, '');
+        
+        // Normalize Unicode characters
+        cleaned = cleaned.normalize('NFC');
+        
+        // Remove any leading/trailing whitespace
+        cleaned = cleaned.trim();
+        
+        // Handle common encoding issues
+        cleaned = cleaned.replace(/\u00A0/g, ' '); // Replace non-breaking spaces
+        cleaned = cleaned.replace(/\u201C|\u201D/g, '"'); // Replace smart quotes
+        cleaned = cleaned.replace(/\u2018|\u2019/g, "'"); // Replace smart apostrophes
+        cleaned = cleaned.replace(/\u2013|\u2014/g, '-'); // Replace em/en dashes
+        
+        return cleaned;
+    }
+
+    setupRealtimeSync() {
+        if (!this.db) return;
+        
+        // Set up real-time listener for study data
+        this.db.collection('users').doc(this.userId).onSnapshot((doc) => {
+            if (doc.exists) {
+                const userData = doc.data();
+                const newStudyData = userData.studyData || {};
+                
+                // Check if data has changed
+                if (JSON.stringify(newStudyData) !== JSON.stringify(this.studyData)) {
+                    console.log('Data synced from another device');
+                    this.studyData = newStudyData;
+                    
+                    // Load favorite words
+                    if (this.studyData.favoriteWords) {
+                        this.favoriteWords = new Set(this.studyData.favoriteWords);
+                    }
+                    
+                    // Update words with new study data
+                    this.words.forEach(word => {
+                        if (this.studyData[word.id]) {
+                            Object.assign(word, this.studyData[word.id]);
+                        }
+                    });
+                    
+                    // Update UI
+                    this.updateFavoriteButton();
+                    this.updateProgress();
+                    this.updatePerformanceChart();
+                }
+            }
+        }, (error) => {
+            console.error('Real-time sync error:', error);
+        });
+        
+        // Set up periodic sync as backup
+        setInterval(() => {
+            this.syncData();
+        }, 30000); // Sync every 30 seconds
+    }
+
+    async syncData() {
+        if (!this.db) return;
+        
+        try {
+            // Save current data to Firebase
+            await this.saveStudyData();
+            console.log('Data synced to Firebase');
+        } catch (error) {
+            console.error('Sync error:', error);
+        }
     }
 
     toggleFavorite() {
@@ -628,6 +1167,8 @@ class FlashcardApp {
             this.favoriteWords.add(wordId);
             console.log(`Added "${currentWord.japanese}" to favorites`);
         }
+        
+        console.log('Current favorites:', Array.from(this.favoriteWords));
         
         // Update button appearance
         this.updateFavoriteButton();
@@ -685,6 +1226,7 @@ class FlashcardApp {
     }
 
     loadSampleData() {
+        console.log('Loading sample data...');
         this.words = [
             { id: 0, japanese: 'こんにちは', meaning: 'Hello', furigana: this.generateFurigana('こんにちは'), wrongCount: 0, lastStudied: null, nextReview: Date.now() },
             { id: 1, japanese: 'ありがとう', meaning: 'Thank you', furigana: this.generateFurigana('ありがとう'), wrongCount: 0, lastStudied: null, nextReview: Date.now() },
@@ -698,6 +1240,7 @@ class FlashcardApp {
         
         console.log(`Loaded ${this.words.length} sample words`);
         this.updateProgress();
+        this.showCurrentCard(); // Make sure to show the current card
         alert('Using sample data. Check console for Google Sheets loading errors.');
     }
 
@@ -756,18 +1299,27 @@ class FlashcardApp {
             const meaning = (row[2] || '').toString().trim();
             let furigana = (row[3] || '').toString().trim();
             
+            // Clean and normalize the text data
+            const cleanJapanese = this.cleanText(japanese);
+            const cleanMeaning = this.cleanText(meaning);
+            const cleanFurigana = this.cleanText(furigana);
+            
+            console.log(`Word ${index + 1} - Raw: Japanese="${japanese}", Meaning="${meaning}", Furigana="${furigana}"`);
+            console.log(`Word ${index + 1} - Cleaned: Japanese="${cleanJapanese}", Meaning="${cleanMeaning}", Furigana="${cleanFurigana}"`);
+            
             // Use furigana from column D, or generate if empty
-            if (!furigana || furigana === 'Loading...' || furigana === '#N/A' || furigana.trim() === '') {
-                furigana = this.generateFurigana(japanese);
-                console.log(`Generated furigana for "${japanese}": "${furigana}"`);
+            if (!cleanFurigana || cleanFurigana === 'Loading...' || cleanFurigana === '#N/A' || cleanFurigana.trim() === '') {
+                furigana = this.generateFurigana(cleanJapanese);
+                console.log(`Generated furigana for "${cleanJapanese}": "${furigana}"`);
             } else {
-                console.log(`Using furigana from column D for "${japanese}": "${furigana}"`);
+                furigana = cleanFurigana;
+                console.log(`Using furigana from column D for "${cleanJapanese}": "${furigana}"`);
             }
             
             const word = {
                 id: index,
-                japanese: japanese, // Column B (index 1) - Japanese
-                meaning: meaning,  // Column C (index 2) - Meaning
+                japanese: cleanJapanese, // Column B (index 1) - Japanese (cleaned)
+                meaning: cleanMeaning,  // Column C (index 2) - Meaning (cleaned)
                 furigana: furigana, // Column D (index 3) - Furigana (or generated)
                 wrongCount: parseInt(row[4]) || 0, // Column E (index 4)
                 lastStudied: row[5] ? new Date(row[5]).getTime() : null, // Column F (index 5)
@@ -798,6 +1350,13 @@ class FlashcardApp {
         }
 
         console.log(`Successfully loaded ${this.words.length} words from Excel file`);
+        
+        // Test the loaded data
+        this.testLoadedData();
+        
+        // Force refresh the display
+        this.forceRefreshDisplay();
+        
         this.updateProgress();
     }
 
@@ -884,11 +1443,11 @@ class FlashcardApp {
                 const word = this.words[i];
                 
                 // Always regenerate furigana for all words
-                const newFurigana = this.generateFurigana(word.japanese);
-                if (newFurigana && newFurigana !== '[読み方]') {
-                    word.furigana = newFurigana;
-                    generatedCount++;
-                    console.log(`Generated furigana for "${word.japanese}": "${newFurigana}"`);
+                    const newFurigana = this.generateFurigana(word.japanese);
+                    if (newFurigana && newFurigana !== '[読み方]') {
+                        word.furigana = newFurigana;
+                        generatedCount++;
+                        console.log(`Generated furigana for "${word.japanese}": "${newFurigana}"`);
                 }
                 
                 // Update progress
@@ -935,6 +1494,13 @@ class FlashcardApp {
                 // Load favorite words
                 if (this.studyData.favoriteWords) {
                     this.favoriteWords = new Set(this.studyData.favoriteWords);
+                    console.log('Loaded favorites from Firebase:', Array.from(this.favoriteWords));
+                }
+                
+                // Load new words count
+                if (this.studyData.newWordsCount !== undefined) {
+                    this.newWordsCount = this.studyData.newWordsCount;
+                    console.log('Loaded new words count from Firebase:', this.newWordsCount);
                 }
                 
                 // Merge study data with words
@@ -946,6 +1512,8 @@ class FlashcardApp {
                     word.understoodCount = word.understoodCount || 0;
                     word.ngCount = word.ngCount || 0;
                     word.totalPoints = word.totalPoints || 0;
+                    word.consecutiveUnderstood = word.consecutiveUnderstood || 0;
+                    word.lastUnderstoodDate = word.lastUnderstoodDate || null;
                 });
             } else {
                 // Initialize point tracking for new users
@@ -953,6 +1521,8 @@ class FlashcardApp {
                     word.understoodCount = 0;
                     word.ngCount = 0;
                     word.totalPoints = 0;
+                    word.consecutiveUnderstood = 0;
+                    word.lastUnderstoodDate = null;
                 });
             }
         } catch (error) {
@@ -966,6 +1536,19 @@ class FlashcardApp {
         const saved = localStorage.getItem('flashcardStudyData');
         if (saved) {
             this.studyData = JSON.parse(saved);
+            
+            // Load favorite words
+            if (this.studyData.favoriteWords) {
+                this.favoriteWords = new Set(this.studyData.favoriteWords);
+                console.log('Loaded favorites from localStorage:', Array.from(this.favoriteWords));
+            }
+            
+            // Load new words count
+            if (this.studyData.newWordsCount !== undefined) {
+                this.newWordsCount = this.studyData.newWordsCount;
+                console.log('Loaded new words count from localStorage:', this.newWordsCount);
+            }
+            
             // Merge study data with words
             this.words.forEach(word => {
                 if (this.studyData[word.id]) {
@@ -975,6 +1558,8 @@ class FlashcardApp {
                 word.understoodCount = word.understoodCount || 0;
                 word.ngCount = word.ngCount || 0;
                 word.totalPoints = word.totalPoints || 0;
+                word.consecutiveUnderstood = word.consecutiveUnderstood || 0;
+                word.lastUnderstoodDate = word.lastUnderstoodDate || null;
             });
         } else {
             // Initialize point tracking for new words
@@ -982,6 +1567,8 @@ class FlashcardApp {
                 word.understoodCount = 0;
                 word.ngCount = 0;
                 word.totalPoints = 0;
+                word.consecutiveUnderstood = 0;
+                word.lastUnderstoodDate = null;
             });
         }
     }
@@ -1013,12 +1600,17 @@ class FlashcardApp {
                 nextReview: word.nextReview,
                 understoodCount: word.understoodCount || 0,
                 ngCount: word.ngCount || 0,
-                totalPoints: word.totalPoints || 0
+                totalPoints: word.totalPoints || 0,
+                consecutiveUnderstood: word.consecutiveUnderstood || 0,
+                lastUnderstoodDate: word.lastUnderstoodDate || null
             };
         });
         
         // Save favorite words separately
         this.studyData.favoriteWords = Array.from(this.favoriteWords);
+        this.studyData.newWordsCount = this.newWordsCount;
+        console.log('Saving favorites:', this.studyData.favoriteWords);
+        console.log('Saving new words count:', this.newWordsCount);
         
         // Save to Firebase
         if (this.db) {
@@ -1059,8 +1651,14 @@ class FlashcardApp {
             
             // Prepare data for Excel - include study tracking columns
             // Column A: Empty, Column B: Japanese, Column C: Meaning, Column D: Furigana
-            // Column E: Wrong Count, Column F: Last Studied, Column G: Understood Count, Column H: NG Count, Column I: Total Points
-            const excelData = this.words.map(word => [
+            // Column E: Wrong Count, Column F: Last Studied, Column G: Understood Count, Column H: NG Count
+            // Column I: RAW points, Column J: Favorite status, Column K: TOTAL POINTS (RAW * 1.3)
+            const excelData = this.words.map(word => {
+                const rawPoints = word.totalPoints || 0;
+                const isFavorite = this.favoriteWords.has(word.id);
+                const totalPoints = rawPoints * 1.3;
+                
+                return [
                 '', // Column A (empty)
                 word.japanese, // Column B - Japanese
                 word.meaning,  // Column C - Meaning
@@ -1069,11 +1667,14 @@ class FlashcardApp {
                 word.lastStudied ? new Date(word.lastStudied).toISOString() : '', // Column F
                 word.understoodCount || 0, // Column G
                 word.ngCount || 0, // Column H
-                word.totalPoints || 0 // Column I
-            ]);
+                    rawPoints, // Column I - RAW points
+                    isFavorite ? 'favorite' : '', // Column J - Favorite status
+                    totalPoints // Column K - TOTAL POINTS
+                ];
+            });
             
             // Add headers
-            excelData.unshift(['', 'Japanese', 'Meaning', 'Furigana', 'Wrong Count', 'Last Studied', 'Understood Count', 'NG Count', 'Total Points']);
+            excelData.unshift(['', 'Japanese', 'Meaning', 'Furigana', 'Wrong Count', 'Last Studied', 'Understood Count', 'NG Count', 'RAW points', 'Favorite', 'TOTAL POINTS']);
             
             const ws = XLSX.utils.aoa_to_sheet(excelData);
             XLSX.utils.book_append_sheet(wb, ws, 'Flashcards');
@@ -1111,6 +1712,14 @@ class FlashcardApp {
 
         const currentWord = this.words[this.currentIndex];
         
+        console.log('Displaying card:', {
+            japanese: currentWord.japanese,
+            meaning: currentWord.meaning,
+            furigana: currentWord.furigana,
+            japaneseLength: currentWord.japanese.length,
+            meaningLength: currentWord.meaning.length
+        });
+        
         // Reset flip state
         this.isFlipped = false;
         document.getElementById('flashcard').classList.remove('flipped');
@@ -1118,14 +1727,54 @@ class FlashcardApp {
         // Show content based on front mode
         if (this.frontMode === 'japanese') {
             // Show Japanese on front, explanation on back
-            document.getElementById('japanese-word').textContent = currentWord.japanese;
-            document.getElementById('meaning').textContent = currentWord.meaning;
-            document.getElementById('furigana').textContent = currentWord.furigana;
+            const japaneseElement = document.getElementById('japanese-word');
+            const meaningElement = document.getElementById('meaning');
+            const furiganaElement = document.getElementById('furigana');
+            
+            japaneseElement.textContent = currentWord.japanese;
+            meaningElement.textContent = currentWord.meaning;
+            furiganaElement.textContent = currentWord.furigana;
+            
+            console.log('Set text content:', {
+                japaneseElement: japaneseElement.textContent,
+                meaningElement: meaningElement.textContent,
+                furiganaElement: furiganaElement.textContent
+            });
+            
+            // Additional debugging for text display
+            console.log('DOM element inspection:', {
+                japaneseElementHTML: japaneseElement.innerHTML,
+                meaningElementHTML: meaningElement.innerHTML,
+                furiganaElementHTML: furiganaElement.innerHTML,
+                japaneseElementStyle: window.getComputedStyle(japaneseElement).fontFamily,
+                meaningElementStyle: window.getComputedStyle(meaningElement).fontFamily,
+                furiganaElementStyle: window.getComputedStyle(furiganaElement).fontFamily
+            });
         } else {
             // Show explanation on front, Japanese on back
-            document.getElementById('japanese-word').textContent = currentWord.meaning + (currentWord.furigana ? ` (${currentWord.furigana})` : '');
-            document.getElementById('meaning').textContent = currentWord.japanese;
-            document.getElementById('furigana').textContent = '';
+            const japaneseElement = document.getElementById('japanese-word');
+            const meaningElement = document.getElementById('meaning');
+            const furiganaElement = document.getElementById('furigana');
+            
+            japaneseElement.textContent = currentWord.meaning + (currentWord.furigana ? ` (${currentWord.furigana})` : '');
+            meaningElement.textContent = currentWord.japanese;
+            furiganaElement.textContent = '';
+            
+            console.log('Set text content (explanation mode):', {
+                japaneseElement: japaneseElement.textContent,
+                meaningElement: meaningElement.textContent,
+                furiganaElement: furiganaElement.textContent
+            });
+            
+            // Additional debugging for text display
+            console.log('DOM element inspection (explanation mode):', {
+                japaneseElementHTML: japaneseElement.innerHTML,
+                meaningElementHTML: meaningElement.innerHTML,
+                furiganaElementHTML: furiganaElement.innerHTML,
+                japaneseElementStyle: window.getComputedStyle(japaneseElement).fontFamily,
+                meaningElementStyle: window.getComputedStyle(meaningElement).fontFamily,
+                furiganaElementStyle: window.getComputedStyle(furiganaElement).fontFamily
+            });
         }
         
         this.updateProgress();
@@ -1137,31 +1786,62 @@ class FlashcardApp {
 
         const currentWord = this.words[this.currentIndex];
         const now = Date.now();
+        const today = new Date().toDateString();
+        
+        // Track if this is a new word (never studied before)
+        const wasNewWord = !currentWord.lastStudied || (currentWord.understoodCount === 0 && currentWord.ngCount === 0);
         
         // Update study data
         currentWord.lastStudied = now;
+        
+        // Initialize tracking for consecutive understood answers
+        if (!currentWord.consecutiveUnderstood) {
+            currentWord.consecutiveUnderstood = 0;
+        }
+        if (!currentWord.lastUnderstoodDate) {
+            currentWord.lastUnderstoodDate = null;
+        }
         
         // Update point system
         if (isCorrect) {
             currentWord.understoodCount++;
             currentWord.totalPoints++;
+            currentWord.consecutiveUnderstood++;
+            currentWord.lastUnderstoodDate = today;
         } else {
             currentWord.ngCount++;
             currentWord.totalPoints--;
             currentWord.wrongCount++;
+            // Reset consecutive understood count when wrong
+            currentWord.consecutiveUnderstood = 0;
         }
         
-        // Spaced repetition based on total points
+        // Increment new words counter if this was a new word
+        if (wasNewWord) {
+            this.newWordsCount++;
+            console.log(`New word studied: ${currentWord.japanese} (${this.newWordsCount}/${this.newWordsThreshold})`);
+        }
+        
+        // Special rule: If understood twice, don't ask again on same day
+        if (isCorrect && currentWord.consecutiveUnderstood >= 2) {
+            // Set next review to 3 days from now
+            currentWord.nextReview = now + (1000 * 60 * 60 * 24 * 3); // 3 days
+            console.log(`Word "${currentWord.japanese}" understood twice - next review in 3 days`);
+        } else {
+            // Regular spaced repetition based on TOTAL POINTS (RAW points * 1.3)
+            const totalPoints = currentWord.totalPoints * 1.3;
+            
         if (currentWord.totalPoints < 0) {
-            // Negative points = show more frequently
+                // Negative raw points = show more frequently
             currentWord.nextReview = now + (1000 * 60 * 5); // 5 minutes
         } else if (currentWord.totalPoints === 0) {
-            // Neutral points = show in 1 hour
+                // Neutral raw points = show in 1 hour
             currentWord.nextReview = now + (1000 * 60 * 60); // 1 hour
         } else {
-            // Positive points = show less frequently (up to 7 days)
-            const delay = Math.min(1000 * 60 * 60 * 24 * currentWord.totalPoints, 1000 * 60 * 60 * 24 * 7); // Max 7 days
+                // Positive raw points = show less frequently based on TOTAL POINTS (up to 7 days)
+                const delay = Math.min(1000 * 60 * 60 * 24 * totalPoints, 1000 * 60 * 60 * 24 * 7); // Max 7 days
             currentWord.nextReview = now + delay;
+            }
         }
 
         this.saveStudyData();
@@ -1170,28 +1850,46 @@ class FlashcardApp {
     }
 
     nextCard() {
-        // Implement spaced repetition algorithm with favorite prioritization
+        // Implement spaced repetition algorithm with favorite prioritization and 30% boost
         const now = Date.now();
         const availableWords = this.words.filter(word => word.nextReview <= now);
         
+        // Check if we should prioritize low scoring words (after 10 new words)
+        const shouldPrioritizeLowScoring = this.newWordsCount >= this.newWordsThreshold;
+        
         if (availableWords.length > 0) {
-            // Separate favorite and non-favorite words
-            const favoriteWords = availableWords.filter(word => this.favoriteWords.has(word.id));
-            const nonFavoriteWords = availableWords.filter(word => !this.favoriteWords.has(word.id));
-            
-            // Prioritize favorite words, then sort by difficulty
-            const prioritizedWords = [...favoriteWords, ...nonFavoriteWords];
-            
-            // Sort by total points (lower points = more difficult = higher priority)
-            prioritizedWords.sort((a, b) => {
-                if (a.totalPoints !== b.totalPoints) {
-                    return a.totalPoints - b.totalPoints; // Lower points first
+            // Calculate weighted scores for each word
+            const wordsWithScores = availableWords.map(word => {
+                const rawPoints = word.totalPoints || 0;
+                const isFavorite = this.favoriteWords.has(word.id);
+                
+                // Apply 30% boost to favorites (multiply by 0.7 to make them appear more often)
+                const favoriteMultiplier = isFavorite ? 0.7 : 1.0;
+                let weightedScore = rawPoints * favoriteMultiplier;
+                
+                // If we should prioritize low scoring words, boost their priority
+                if (shouldPrioritizeLowScoring && rawPoints < 0) {
+                    weightedScore = rawPoints * 0.5; // Make low scoring words appear even more often
                 }
-                return a.nextReview - b.nextReview; // Earlier review time first
+                
+                return {
+                    word,
+                    rawPoints,
+                    weightedScore,
+                    isFavorite
+                };
+            });
+            
+            // Sort by weighted score (lower score = higher priority)
+            wordsWithScores.sort((a, b) => {
+                if (a.weightedScore !== b.weightedScore) {
+                    return a.weightedScore - b.weightedScore; // Lower score first
+                }
+                return a.word.nextReview - b.word.nextReview; // Earlier review time first
             });
             
             // Find the index of the selected word in the current words array
-            const selectedWord = prioritizedWords[0];
+            const selectedWord = wordsWithScores[0].word;
             const foundIndex = this.words.findIndex(word => word.id === selectedWord.id);
             
             if (foundIndex !== -1) {
@@ -1201,19 +1899,40 @@ class FlashcardApp {
                 this.currentIndex = Math.floor(Math.random() * this.words.length);
             }
         } else {
-            // If no words are due for review, prioritize favorites
-            const favoriteWords = this.words.filter(word => this.favoriteWords.has(word.id));
-            if (favoriteWords.length > 0) {
-                // Pick a random favorite word
-                const randomFavorite = favoriteWords[Math.floor(Math.random() * favoriteWords.length)];
-                this.currentIndex = this.words.findIndex(word => word.id === randomFavorite.id);
-            } else {
-                // Pick a random word
-                this.currentIndex = Math.floor(Math.random() * this.words.length);
-            }
+            // If no words are due for review, prioritize based on new words threshold
+            const wordsWithScores = this.words.map(word => {
+                const rawPoints = word.totalPoints || 0;
+                const isFavorite = this.favoriteWords.has(word.id);
+                const favoriteMultiplier = isFavorite ? 0.7 : 1.0;
+                let weightedScore = rawPoints * favoriteMultiplier;
+                
+                // If we should prioritize low scoring words, boost their priority
+                if (shouldPrioritizeLowScoring && rawPoints < 0) {
+                    weightedScore = rawPoints * 0.5; // Make low scoring words appear even more often
+                }
+                
+                return {
+                    word,
+                    rawPoints,
+                    weightedScore,
+                    isFavorite
+                };
+            });
+            
+            // Sort by weighted score (lower score = higher priority)
+            wordsWithScores.sort((a, b) => a.weightedScore - b.weightedScore);
+            
+            // Pick the word with lowest weighted score
+            const selectedWord = wordsWithScores[0].word;
+            this.currentIndex = this.words.findIndex(word => word.id === selectedWord.id);
         }
         
-        console.log(`Next card: index ${this.currentIndex}, word: ${this.words[this.currentIndex]?.japanese}, favorite: ${this.favoriteWords.has(this.words[this.currentIndex]?.id)}`);
+        const currentWord = this.words[this.currentIndex];
+        const isFavorite = this.favoriteWords.has(currentWord?.id);
+        const rawPoints = currentWord?.totalPoints || 0;
+        const totalPoints = rawPoints * 1.3;
+        
+        console.log(`Next card: index ${this.currentIndex}, word: ${currentWord?.japanese}, favorite: ${isFavorite}, raw points: ${rawPoints}, total points: ${totalPoints.toFixed(2)}, new words: ${this.newWordsCount}/${this.newWordsThreshold}, low scoring priority: ${shouldPrioritizeLowScoring}`);
         this.showCurrentCard();
     }
 
