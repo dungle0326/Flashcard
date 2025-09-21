@@ -25,6 +25,12 @@ body {
     height: 300px;
     perspective: 1000px;
     margin-bottom: 30px;
+    position: relative;
+    transition: transform 0.1s ease-out;
+}
+
+.flashcard.swiping {
+    transition: none;
 }
 
 .card-side {
@@ -46,6 +52,139 @@ body {
 .card-side:hover {
     transform: translateY(-5px);
     box-shadow: 0 15px 40px rgba(0, 0, 0, 0.3);
+}
+
+/* Touch feedback */
+.card-side:active {
+    transform: scale(0.98);
+    transition: transform 0.1s;
+}
+
+/* Swipe indicators */
+.swipe-hint {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 1.5rem;
+    color: rgba(255, 255, 255, 0.7);
+    font-weight: bold;
+    pointer-events: none;
+    z-index: 10;
+    transition: opacity 0.3s;
+    opacity: 0;
+}
+
+.swipe-hint.left {
+    left: 20px;
+}
+
+.swipe-hint.right {
+    right: 20px;
+}
+
+.swipe-hint.hidden {
+    opacity: 0;
+}
+
+/* Swipe zones for visual feedback */
+.swipe-zone {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 50%;
+    pointer-events: none;
+    z-index: 5;
+    transition: background-color 0.2s ease;
+}
+
+.swipe-zone.left {
+    left: 0;
+    background: linear-gradient(90deg, rgba(244, 67, 54, 0.1) 0%, transparent 100%);
+}
+
+.swipe-zone.right {
+    right: 0;
+    background: linear-gradient(270deg, rgba(33, 150, 243, 0.1) 0%, transparent 100%);
+}
+
+.swipe-zone.active {
+    background: linear-gradient(90deg, rgba(244, 67, 54, 0.3) 0%, transparent 100%);
+}
+
+.swipe-zone.right.active {
+    background: linear-gradient(270deg, rgba(33, 150, 243, 0.3) 0%, transparent 100%);
+}
+
+/* Swipe threshold indicators */
+.swipe-threshold {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 4px;
+    height: 60px;
+    background: rgba(255, 255, 255, 0.8);
+    border-radius: 2px;
+    pointer-events: none;
+    z-index: 8;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.swipe-threshold.left {
+    left: 20%;
+}
+
+.swipe-threshold.right {
+    right: 20%;
+}
+
+.swipe-threshold.show {
+    opacity: 1;
+}
+
+/* Favorite button */
+.favorite-btn {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    background: rgba(255, 255, 255, 0.9);
+    border: none;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    font-size: 20px;
+    cursor: pointer;
+    z-index: 15;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.favorite-btn:hover {
+    background: rgba(255, 255, 255, 1);
+    transform: scale(1.1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.favorite-btn.favorited {
+    background: #ff6b6b;
+    color: white;
+    animation: heartBeat 0.6s ease-in-out;
+}
+
+.favorite-btn.favorited:hover {
+    background: #ff5252;
+    transform: scale(1.1);
+}
+
+@keyframes heartBeat {
+    0% { transform: scale(1); }
+    25% { transform: scale(1.2); }
+    50% { transform: scale(1.1); }
+    75% { transform: scale(1.2); }
+    100% { transform: scale(1); }
 }
 
 #front {
@@ -90,22 +229,7 @@ body {
     margin-bottom: 20px;
 }
 
-.flip-btn {
-    background: #4CAF50;
-    color: white;
-    border: none;
-    padding: 12px 24px;
-    font-size: 1.1rem;
-    border-radius: 25px;
-    cursor: pointer;
-    margin-bottom: 20px;
-    transition: all 0.3s;
-}
-
-.flip-btn:hover {
-    background: #45a049;
-    transform: translateY(-2px);
-}
+/* Flip button removed - card now flips on tap/click */
 
 .action-buttons {
     display: flex;
@@ -199,3 +323,163 @@ body {
 .flip-animation {
     animation: flip 0.3s ease-in-out;
 }
+
+/* Right Side Menu */
+.right-menu {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1000;
+}
+
+.menu-toggle {
+    background: #007bff;
+    color: white;
+    border: none;
+    padding: 12px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 18px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    transition: all 0.3s ease;
+}
+
+.menu-toggle:hover {
+    background: #0056b3;
+    transform: translateY(-2px);
+}
+
+.menu-content {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    padding: 15px;
+    min-width: 200px;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-10px);
+    transition: all 0.3s ease;
+}
+
+.menu-content.show {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+.menu-btn {
+    display: block;
+    width: 100%;
+    padding: 10px 15px;
+    margin: 5px 0;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s ease;
+}
+
+.menu-btn:hover {
+    background: #e9ecef;
+    border-color: #007bff;
+}
+
+.menu-section {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #dee2e6;
+}
+
+.menu-label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 10px;
+    color: #495057;
+    font-size: 14px;
+}
+
+.radio-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.radio-option {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    padding: 5px;
+    border-radius: 4px;
+    transition: background-color 0.2s ease;
+}
+
+.radio-option:hover {
+    background: #f8f9fa;
+}
+
+.radio-option input[type="radio"] {
+    margin-right: 8px;
+    accent-color: #007bff;
+}
+
+.radio-option span {
+    font-size: 13px;
+    color: #495057;
+}
+
+.performance-section {
+    margin-top: 30px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 15px;
+    padding: 20px;
+    backdrop-filter: blur(10px);
+}
+
+.performance-section h3 {
+    color: white;
+    text-align: center;
+    margin-bottom: 20px;
+    font-size: 1.5rem;
+}
+
+.chart-controls {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.chart-btn {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.3s;
+    font-size: 0.9rem;
+}
+
+.chart-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: translateY(-2px);
+}
+
+.chart-btn.active {
+    background: #4CAF50;
+    color: white;
+}
+
+.chart-container {
+    position: relative;
+    height: 300px;
+    background: white;
+    border-radius: 10px;
+    padding: 10px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+}
+

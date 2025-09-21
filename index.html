@@ -6,10 +6,21 @@
     <title>Japanese Flashcard App</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 </head>
 <body>
     <div class="container">
-        <div class="flashcard" id="flashcard">
+        <div class="app-content">
+            <div class="flashcard" id="flashcard">
+            <div class="swipe-zone left" id="swipe-zone-left"></div>
+            <div class="swipe-zone right" id="swipe-zone-right"></div>
+            <div class="swipe-threshold left" id="swipe-threshold-left"></div>
+            <div class="swipe-threshold right" id="swipe-threshold-right"></div>
+            <div class="swipe-hint left" id="swipe-left-hint">← NG</div>
+            <div class="swipe-hint right" id="swipe-right-hint">Understood →</div>
+            <button class="favorite-btn" id="favorite-btn" title="Add to favorites">♡</button>
             <div class="card-side" id="front">
                 <div class="word" id="japanese-word">Loading...</div>
             </div>
@@ -20,7 +31,6 @@
         </div>
         
         <div class="controls">
-            <button id="flip-btn" class="flip-btn">Show Answer</button>
             <div class="action-buttons">
                 <button id="ng-btn" class="ng-btn">NG</button>
                 <button id="understood-btn" class="understood-btn">Understood</button>
@@ -33,6 +43,54 @@
             </div>
             <div class="progress-text" id="progress-text">0 / 0</div>
         </div>
+        
+    <!-- Right Side Menu -->
+    <div class="right-menu">
+        <button class="menu-toggle" id="menu-toggle">☰</button>
+        <div class="menu-content" id="menu-content">
+            <button class="menu-btn" id="view-data-btn">View Data</button>
+            <button class="menu-btn" id="refresh-data-btn">Refresh Data</button>
+            <button class="menu-btn" id="review-favorites-btn">Review Favorites</button>
+            <button class="menu-btn" id="save-excel-btn">Save Progress to Excel</button>
+            <div class="menu-section">
+                <label class="menu-label">Front Flashcard:</label>
+                <div class="radio-group">
+                    <label class="radio-option">
+                        <input type="radio" name="front-mode" value="japanese" checked>
+                        <span>Japanese Word</span>
+                    </label>
+                    <label class="radio-option">
+                        <input type="radio" name="front-mode" value="explanation">
+                        <span>Explanation</span>
+                    </label>
+                </div>
+            </div>
+            <div class="menu-section">
+                <label class="menu-label">Word Order:</label>
+                <div class="radio-group">
+                    <label class="radio-option">
+                        <input type="radio" name="word-order" value="original">
+                        <span>Original</span>
+                    </label>
+                    <label class="radio-option">
+                        <input type="radio" name="word-order" value="shuffle" checked>
+                        <span>Shuffle</span>
+                    </label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="performance-section">
+        <div class="chart-controls">
+            <button class="chart-btn active" data-period="week">Week</button>
+            <button class="chart-btn" data-period="month">Month</button>
+            <button class="chart-btn" data-period="3months">3 Months</button>
+        </div>
+        <div class="chart-container">
+            <canvas id="performanceChart"></canvas>
+        </div>
+    </div>
     </div>
     
     <script src="script.js"></script>
